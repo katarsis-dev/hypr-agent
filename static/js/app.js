@@ -1,6 +1,6 @@
 /**
  * hypr-agent — Frontend logic
- * Handles WebSocket chat, streaming agent steps, settings, and UI state.
+ * Handles WebSocket chat, streaming agent steps, settings, conversation history.
  */
 
 (function () {
@@ -21,6 +21,11 @@
     const modelSelect = document.getElementById('model-select');
     const tempSlider = document.getElementById('temperature');
     const tempValue = document.getElementById('temp-value');
+    const sidebar = document.getElementById('sidebar');
+    const sidebarToggle = document.getElementById('sidebar-toggle');
+    const sidebarOpen = document.getElementById('sidebar-open');
+    const newChatBtn = document.getElementById('new-chat-btn');
+    const conversationList = document.getElementById('conversation-list');
 
     // State
     let ws = null;
@@ -42,7 +47,6 @@
 
         ws.onclose = () => {
             setStatus('error', 'disconnected');
-            // Reconnect after 3s
             setTimeout(connectWS, 3000);
         };
 
@@ -60,6 +64,7 @@
         switch (data.type) {
             case 'meta':
                 conversationId = data.conversation_id;
+                loadConversations();
                 break;
             case 'thought':
                 addStep('thought', data.content, data.duration);
@@ -81,6 +86,7 @@
             case 'done':
                 setProcessing(false);
                 removeLoading();
+                loadConversations();
                 break;
         }
         scrollToBottom();
@@ -208,6 +214,116 @@
         }));
     }
 
+    // --- Conversation History ---
+
+    async function loadConversations() {
+        try {
+            const resp = await fetch('/api/conversations');
+            const data = await resp.json();
+            renderConversationList(data.conversations);
+        } catch (e) {
+            console.error('Failed to load conversations:', e);
+        }
+    }
+
+    function renderConversationList(conversations) {
+        conversationList.innerHTML = '';
+        if (!conversations || conversations.length === 0) {
+            conversationList.innerHTML = '<div class="conv-empty">No conversations yet</div>';
+            return;
+        }
+
+        conversations.forEach(conv => {
+            const item = document.createElement('div');
+            item.className = 'conv-item' + (conv.id === conversationId ? ' active' : '');
+
+            const title = conv.first_message || 'New conversation';
+            const date = conv.updated_at ? formatDate(conv.updated_at) : '';
+
+            item.innerHTML = `
+                <div class="conv-item-title">${escapeHtml(title)}</div>
+                <div class="conv-item-date">${date}</div>
+            `;
+
+            item.addEventListener('click', () => {
+                loadConversation(conv.id);
+            });
+
+            conversationList.appendChild(item);
+        });
+    }
+
+    async function loadConversation(convId) {
+        try {
+            const resp = await fetch(`/api/conversations/${convId}`);
+            const data = await resp.json();
+
+            conversationId = convId;
+            messages.innerHTML = '';
+            if (welcome) welcome.style.display = 'none';
+
+            // Render conversation messages
+            if (data.messages) {
+                data.messages.forEach(msg => {
+                    if (msg.role === 'user') {
+                        addUserMessage(msg.content);
+                    } else if (msg.role === 'agent') {
+                        currentAgentBlock = null;
+                        createAgentBlock();
+                        if (msg.steps) {
+                            msg.steps.forEach(step => {
+                                addStep(step.type, step.content, step.duration || 0);
+                            });
+                        } else {
+                            addStep('final', msg.content, 0);
+                        }
+                    }
+                });
+                currentAgentBlock = null;
+            }
+
+            // Update active state in sidebar
+            document.querySelectorAll('.conv-item').forEach(el => el.classList.remove('active'));
+            loadConversations();
+            scrollToBottom();
+        } catch (e) {
+            console.error('Failed to load conversation:', e);
+        }
+    }
+
+    function startNewChat() {
+        conversationId = null;
+        messages.innerHTML = '';
+        if (welcome) welcome.style.display = 'block';
+        currentAgentBlock = null;
+        document.querySelectorAll('.conv-item').forEach(el => el.classList.remove('active'));
+    }
+
+    function formatDate(isoStr) {
+        try {
+            const d = new Date(isoStr);
+            const now = new Date();
+            const diffMs = now - d;
+            const diffMins = Math.floor(diffMs / 60000);
+
+            if (diffMins < 1) return 'just now';
+            if (diffMins < 60) return `${diffMins}m ago`;
+            const diffHrs = Math.floor(diffMins / 60);
+            if (diffHrs < 24) return `${diffHrs}h ago`;
+            const diffDays = Math.floor(diffHrs / 24);
+            if (diffDays < 7) return `${diffDays}d ago`;
+            return d.toLocaleDateString();
+        } catch {
+            return '';
+        }
+    }
+
+    // --- Sidebar Toggle ---
+
+    function toggleSidebar() {
+        sidebar.classList.toggle('collapsed');
+    }
+
     // --- Settings ---
 
     async function loadModels() {
@@ -284,6 +400,13 @@
         tempValue.textContent = tempSlider.value;
     });
 
+    sidebarToggle.addEventListener('click', toggleSidebar);
+    sidebarOpen.addEventListener('click', () => {
+        sidebar.classList.remove('collapsed');
+        sidebar.classList.toggle('open');
+    });
+    newChatBtn.addEventListener('click', startNewChat);
+
     // --- Health Check ---
 
     async function checkHealth() {
@@ -304,6 +427,7 @@
 
     connectWS();
     checkHealth();
+    loadConversations();
     setInterval(checkHealth, 10000);
 
 })();
