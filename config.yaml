@@ -1,0 +1,53 @@
+# hypr-agent configuration
+# Optimized for: Ryzen 5 3500U / 16GB DDR4 / Arch Linux
+
+app:
+  host: "127.0.0.1"
+  port: 8080
+
+llm:
+  # Path to your GGUF model directory
+  model_dir: "~/models"
+
+  # Default model (filename in model_dir)
+  default_model: "qwen2.5-coder-3b-instruct-q4_k_m.gguf"
+
+  # llama-server settings (tuned for Ryzen 5 3500U)
+  server:
+    host: "127.0.0.1"
+    port: 11434
+    threads: 6           # 4c/8t — leave 2 threads for OS
+    ctx_size: 4096       # balance RAM vs capability
+    batch_size: 512      # good for Zen+ L2 cache
+    mlock: true          # pin model in RAM, no swap thrashing
+    mmap: true           # fast load from NVMe
+
+agent:
+  max_steps: 15          # max reasoning steps per task
+  max_output_chars: 4000 # truncate long tool outputs
+  timeout_seconds: 180   # max time for a full task
+  temperature: 0.7
+  top_p: 0.9
+  repeat_penalty: 1.1
+
+  # Safety
+  allowed_directories:
+    - "~"
+  allow_shell: true
+  allow_web_search: true
+
+router:
+  # Rule-based routing thresholds
+  # Tasks with these keywords go to the coding model
+  code_keywords:
+    - "code"
+    - "function"
+    - "script"
+    - "debug"
+    - "fix"
+    - "implement"
+    - "refactor"
+    - "compile"
+    - "build"
+  # Simple tasks (< this word count) use the fast model
+  simple_task_max_words: 10
