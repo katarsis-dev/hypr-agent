@@ -53,17 +53,35 @@ fi
 
 # Find llama-server binary (handles different install locations)
 LLAMA_SERVER=""
+SEARCH_PATHS=(
+    "$HOME/Dev/llama.cpp/build/bin/llama-server"
+    "$HOME/llama.cpp/build/bin/llama-server"
+    "/opt/llama-cpp/bin/llama-server"
+    "/usr/local/bin/llama-server"
+    "/usr/bin/llama-server"
+)
+
 if command -v llama-server &> /dev/null; then
     LLAMA_SERVER="llama-server"
-elif [ -x "/opt/llama-cpp/bin/llama-server" ]; then
-    LLAMA_SERVER="/opt/llama-cpp/bin/llama-server"
-elif [ -x "/usr/local/bin/llama-server" ]; then
-    LLAMA_SERVER="/usr/local/bin/llama-server"
 else
+    for path in "${SEARCH_PATHS[@]}"; do
+        if [ -x "$path" ]; then
+            LLAMA_SERVER="$path"
+            break
+        fi
+    done
+fi
+
+if [ -z "$LLAMA_SERVER" ]; then
     echo -e "${RED}Error: llama-server not found${NC}"
-    echo "Install with: pacman -S llama.cpp"
-    echo "  or: yay -S llama.cpp-git"
-    echo "  or: yay -S llama-cpp-cuda-git (for CUDA)"
+    echo "Searched: PATH, ${SEARCH_PATHS[*]}"
+    echo ""
+    echo "Build from source (recommended):"
+    echo "  git clone https://github.com/ggerganov/llama.cpp.git"
+    echo "  cd llama.cpp && cmake -B build -DCMAKE_BUILD_TYPE=Release"
+    echo "  cmake --build build --config Release -j\$(nproc)"
+    echo ""
+    echo "Or install: pacman -S llama.cpp"
     exit 1
 fi
 echo -e "  Binary: ${LLAMA_SERVER}"
