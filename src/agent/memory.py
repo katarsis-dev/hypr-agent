@@ -71,6 +71,13 @@ class ConversationMemory:
                     parts.append(f"FINAL_ANSWER: {msg['final_answer']}")
         return "\n".join(parts)
 
+    def load(self) -> dict[str, Any]:
+        """Load full conversation data for the frontend."""
+        return {
+            "id": self.conversation_id,
+            "messages": self.messages,
+        }
+
     def list_conversations(self) -> list[dict[str, Any]]:
         """List all saved conversations."""
         convos = []
@@ -80,11 +87,14 @@ class ConversationMemory:
                 first_msg = next(
                     (m["content"] for m in data if m["role"] == "user"), "Empty"
                 )
+                last_ts = data[-1].get("timestamp", 0) if data else 0
+                from datetime import datetime, timezone
+                updated_at = datetime.fromtimestamp(last_ts, tz=timezone.utc).isoformat() if last_ts else ""
                 convos.append({
                     "id": f.stem,
-                    "preview": first_msg[:80],
-                    "messages": len(data),
-                    "last_updated": data[-1].get("timestamp", 0) if data else 0,
+                    "first_message": first_msg[:80],
+                    "message_count": len(data),
+                    "updated_at": updated_at,
                 })
             except (json.JSONDecodeError, IndexError):
                 continue

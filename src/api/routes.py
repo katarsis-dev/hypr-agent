@@ -196,3 +196,11 @@ async def list_conversations() -> ConversationListResponse:
     """List all saved conversations."""
     memory = ConversationMemory()
     return ConversationListResponse(conversations=memory.list_conversations())
+
+
+@router.get("/conversations/{conv_id}")
+async def get_conversation(conv_id: str) -> JSONResponse:
+    """Get a specific conversation's messages."""
+    memory = ConversationMemory(conversation_id=conv_id)
+    data = memory.load()
+    return JSONResponse(data)

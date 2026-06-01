@@ -147,6 +147,11 @@ All settings live in `config.yaml`:
 | `system_info` | CPU, RAM, disk, processes, OS info |
 | `run_code` | Execute Python code snippets |
 | `web_search` | Search the web (DuckDuckGo) |
+| `git` | Git operations: status, log, diff, commit, branch |
+| `screenshot` | Take screenshots (full/region/window) via grim+slurp |
+| `hyprland` | Control Hyprland: windows, workspaces, focus, resize |
+| `pdf_reader` | Extract text from PDF files |
+| `document_convert` | Convert between PDF/DOCX/MD/TXT/HTML/ODT |
 | `clipboard` | Read/write Wayland clipboard |
 | `notify` | Send desktop notifications |
 | `weather` | Get weather for any location |
@@ -228,10 +233,12 @@ llm.server.mlock: true      # prevents thrashing when RAM is tight
 ## Web UI Features
 
 - Dark terminal-inspired theme
+- **Conversation history sidebar** — click to resume past conversations
 - Model selector dropdown (auto-detects GGUFs in your model_dir)
 - Real-time agent step visualization (THOUGHT → ACTION → OBSERVATION)
 - Temperature / context / thread controls
-- Conversation history
+- Collapsible sidebar (toggle with ☰ button)
+- New conversation button (+)
 - Keyboard shortcut: Enter to send, Shift+Enter for newline
 
 ## Project Structure
