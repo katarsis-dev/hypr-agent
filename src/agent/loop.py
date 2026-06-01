@@ -14,6 +14,19 @@ from src.llm.client import llm_client
 from src.tools import tool_registry
 
 
+class AgentEvent:
+    """A granular event emitted during agent execution."""
+
+    def __init__(self, event_type: str, **kwargs: Any) -> None:
+        self.type = event_type
+        self.data = kwargs
+
+    def to_ws(self) -> dict[str, Any]:
+        msg: dict[str, Any] = {"type": self.type}
+        msg.update(self.data)
+        return msg
+
+
 class AgentStep:
     """Represents a single step in the agent loop."""
 
@@ -127,47 +140,112 @@ class AgentLoop:
             return f"Error executing {action}: {str(e)}"
 
     async def run(self, user_input: str) -> AsyncGenerator[AgentStep, None]:
-        """Run the agent loop, yielding each step as it happens."""
+        """Run the agent loop, yielding each step as it happens (legacy)."""
+        async for event in self.run_events(user_input):
+            if event.type in ("thought", "action", "observation", "final_answer", "error"):
+                step = AgentStep()
+                if event.type == "thought":
+                    step.thought = event.data.get("content", "")
+                    step.duration = event.data.get("duration", 0)
+                elif event.type == "action":
+                    step.action = event.data.get("action", "")
+                    step.action_input = event.data.get("action_input")
+                    step.duration = event.data.get("duration", 0)
+                elif event.type == "observation":
+                    step.observation = event.data.get("content", "")
+                    step.duration = event.data.get("duration", 0)
+                elif event.type == "final_answer":
+                    step.final_answer = event.data.get("content", "")
+                    step.duration = event.data.get("duration", 0)
+                elif event.type == "error":
+                    step.error = event.data.get("content", "")
+                    step.duration = event.data.get("duration", 0)
+                yield step
+
+    async def run_events(self, user_input: str) -> AsyncGenerator[AgentEvent, None]:
+        """Run the agent loop, yielding granular events for real-time UI."""
         self.memory.add_user_message(user_input)
+        total_start = time.time()
 
         for step_num in range(self.max_steps):
             start = time.time()
 
-            # Build prompt with conversation history
+            # Status: generating
+            yield AgentEvent(
+                "status",
+                content=f"Thinking... (step {step_num + 1}/{self.max_steps})",
+                step=step_num + 1,
+                max_steps=self.max_steps,
+            )
+
+            # Build prompt
             context = self.memory.get_context_window()
             prompt = f"{context}\n\nContinue. Respond with THOUGHT then ACTION or FINAL_ANSWER."
+            system = self._build_system_prompt()
 
-            # Get LLM response
+            # Stream LLM response token by token
+            full_response = ""
             try:
-                response = await llm_client.generate(
+                async for token in llm_client.generate_stream(
                     prompt=prompt,
-                    system=self._build_system_prompt(),
-                )
+                    system=system,
+                ):
+                    full_response += token
+                    yield AgentEvent("thinking_delta", content=token)
             except Exception as e:
-                step = AgentStep(error=f"LLM error: {str(e)}")
-                step.duration = time.time() - start
-                yield step
+                yield AgentEvent(
+                    "error",
+                    content=f"LLM error: {str(e)}",
+                    duration=round(time.time() - start, 2),
+                )
                 return
 
-            # Parse response
-            step = self._parse_response(response)
-            step.duration = time.time() - start
+            think_duration = round(time.time() - start, 2)
 
-            # If we got a final answer, we're done
+            # Parse the complete response
+            step = self._parse_response(full_response)
+
+            # Emit the complete thought
+            if step.thought:
+                yield AgentEvent(
+                    "thought",
+                    content=step.thought,
+                    duration=think_duration,
+                )
+
+            # Final answer
             if step.final_answer:
                 self.memory.add_agent_step(
                     thought=step.thought,
                     final_answer=step.final_answer,
                 )
-                yield step
+                yield AgentEvent(
+                    "final_answer",
+                    content=step.final_answer,
+                    duration=think_duration,
+                    total_duration=round(time.time() - total_start, 2),
+                )
                 return
 
-            # If we got an action, execute it
+            # Action execution
             if step.action:
+                yield AgentEvent(
+                    "action_start",
+                    action=step.action,
+                    action_input=step.action_input,
+                )
+                yield AgentEvent(
+                    "status",
+                    content=f"Running {step.action}...",
+                    step=step_num + 1,
+                    max_steps=self.max_steps,
+                )
+
                 obs_start = time.time()
-                observation = await self._execute_tool(step.action, step.action_input)
-                step.observation = observation
-                step.duration += time.time() - obs_start
+                observation = await self._execute_tool(
+                    step.action, step.action_input
+                )
+                obs_duration = round(time.time() - obs_start, 2)
 
                 self.memory.add_agent_step(
                     thought=step.thought,
@@ -177,17 +255,27 @@ class AgentLoop:
                     else str(step.action_input),
                     observation=observation,
                 )
-                yield step
+
+                yield AgentEvent(
+                    "observation",
+                    content=observation,
+                    action=step.action,
+                    duration=obs_duration,
+                )
             else:
-                # No action and no final answer — the model is confused
-                step.error = "No valid action or final answer parsed from response."
-                self.memory.add_agent_step(thought=step.thought or response)
-                yield step
-                # Give it one more chance
+                # No action and no final answer
+                yield AgentEvent(
+                    "error",
+                    content="No valid action or final answer parsed from response.",
+                    duration=think_duration,
+                )
+                self.memory.add_agent_step(thought=step.thought or full_response)
                 continue
 
         # Max steps reached
-        yield AgentStep(
-            thought="Maximum steps reached.",
-            final_answer="I've reached the maximum number of steps. Here's what I've done so far — please check the steps above.",
+        yield AgentEvent(
+            "final_answer",
+            content="I've reached the maximum number of steps. Here's what I've done so far — please check the steps above.",
+            duration=0,
+            total_duration=round(time.time() - total_start, 2),
         )

@@ -32,6 +32,9 @@
     let conversationId = null;
     let isProcessing = false;
     let currentAgentBlock = null;
+    let streamingThinkingEl = null;   // element receiving streaming tokens
+    let streamingRawText = '';        // accumulated raw text from thinking_delta
+    let taskStartTime = null;
 
     // --- WebSocket Connection ---
 
@@ -66,57 +69,278 @@
                 conversationId = data.conversation_id;
                 loadConversations();
                 break;
+
+            case 'status':
+                updateAgentStatus(data.content, data.step, data.max_steps);
+                break;
+
+            case 'thinking_delta':
+                appendThinkingToken(data.content);
+                break;
+
             case 'thought':
-                addStep('thought', data.content, data.duration);
+                finalizeThinking(data.content, data.duration);
                 break;
-            case 'action':
-                addStep('action', `${data.action}(${formatInput(data.action_input)})`, data.duration);
+
+            case 'action_start':
+                addActionStart(data.action, data.action_input);
                 break;
+
             case 'observation':
-                addStep('observation', data.content, data.duration);
+                addObservation(data.content, data.action, data.duration);
                 break;
+
             case 'final_answer':
-                addStep('final', data.content, data.duration);
+                addFinalAnswer(data.content, data.duration, data.total_duration);
                 setProcessing(false);
                 break;
+
             case 'error':
-                addStep('error', data.content, data.duration);
+                addError(data.content, data.duration);
                 setProcessing(false);
                 break;
+
             case 'done':
                 setProcessing(false);
-                removeLoading();
+                removeStatusBar();
                 loadConversations();
                 break;
         }
         scrollToBottom();
     }
 
-    // --- UI Rendering ---
+    // --- Streaming Progress Rendering ---
 
-    function addUserMessage(text) {
-        if (welcome) welcome.style.display = 'none';
-        const div = document.createElement('div');
-        div.className = 'message message-user';
-        div.innerHTML = `<div class="bubble">${escapeHtml(text)}</div>`;
-        messages.appendChild(div);
+    function ensureAgentBlock() {
+        if (!currentAgentBlock) {
+            const block = document.createElement('div');
+            block.className = 'agent-block';
+            messages.appendChild(block);
+            currentAgentBlock = block;
+        }
+        return currentAgentBlock;
+    }
+
+    function updateAgentStatus(content, step, maxSteps) {
+        removeLoading();
+        const block = ensureAgentBlock();
+
+        let bar = block.querySelector('.agent-status-bar');
+        if (!bar) {
+            bar = document.createElement('div');
+            bar.className = 'agent-status-bar';
+            block.appendChild(bar);
+        }
+
+        const elapsed = taskStartTime ? ((Date.now() - taskStartTime) / 1000).toFixed(1) : '0.0';
+        const stepInfo = step && maxSteps ? `step ${step}/${maxSteps}` : '';
+
+        bar.innerHTML = `
+            <span class="status-spinner"></span>
+            <span class="status-msg">${escapeHtml(content)}</span>
+            <span class="status-meta">${stepInfo} &middot; ${elapsed}s</span>
+        `;
         scrollToBottom();
     }
 
-    function createAgentBlock() {
-        const block = document.createElement('div');
-        block.className = 'agent-block';
-        messages.appendChild(block);
-        currentAgentBlock = block;
-        return block;
+    function removeStatusBar() {
+        if (currentAgentBlock) {
+            const bar = currentAgentBlock.querySelector('.agent-status-bar');
+            if (bar) bar.remove();
+        }
     }
 
+    function appendThinkingToken(token) {
+        removeLoading();
+        const block = ensureAgentBlock();
+
+        if (!streamingThinkingEl) {
+            // Create a new streaming thinking step
+            const step = document.createElement('div');
+            step.className = 'step step-streaming';
+
+            step.innerHTML = `
+                <div class="step-header">
+                    <span class="step-label thinking">generating</span>
+                    <span class="step-duration" data-start="${Date.now()}"></span>
+                </div>
+                <div class="step-content thinking-stream"></div>
+            `;
+
+            // Insert before status bar if present
+            const statusBar = block.querySelector('.agent-status-bar');
+            if (statusBar) {
+                block.insertBefore(step, statusBar);
+            } else {
+                block.appendChild(step);
+            }
+
+            streamingThinkingEl = step.querySelector('.thinking-stream');
+            streamingRawText = '';
+        }
+
+        streamingRawText += token;
+        streamingThinkingEl.textContent = streamingRawText;
+
+        // Update live timer
+        const stepEl = streamingThinkingEl.closest('.step');
+        const durEl = stepEl ? stepEl.querySelector('.step-duration') : null;
+        if (durEl) {
+            const startMs = parseInt(durEl.dataset.start, 10);
+            durEl.textContent = ((Date.now() - startMs) / 1000).toFixed(1) + 's';
+        }
+
+        scrollToBottom();
+    }
+
+    function finalizeThinking(content, duration) {
+        // Replace streaming block with final parsed thought
+        if (streamingThinkingEl) {
+            const stepEl = streamingThinkingEl.closest('.step');
+            if (stepEl) {
+                stepEl.classList.remove('step-streaming');
+                const label = stepEl.querySelector('.step-label');
+                if (label) {
+                    label.textContent = 'thought';
+                    label.className = 'step-label thought';
+                }
+                const durEl = stepEl.querySelector('.step-duration');
+                if (durEl) {
+                    durEl.textContent = duration ? duration.toFixed(1) + 's' : '';
+                    delete durEl.dataset.start;
+                }
+                streamingThinkingEl.textContent = content;
+            }
+            streamingThinkingEl = null;
+            streamingRawText = '';
+        } else {
+            // No streaming happened (fallback)
+            addStep('thought', content, duration);
+        }
+        // Remove the status bar since we're moving to the next phase
+        removeStatusBar();
+    }
+
+    function addActionStart(action, actionInput) {
+        removeStatusBar();
+        const block = ensureAgentBlock();
+
+        const step = document.createElement('div');
+        step.className = 'step step-running';
+        step.dataset.action = action;
+
+        const inputStr = formatInput(actionInput);
+        const inputPreview = inputStr.length > 120 ? inputStr.slice(0, 120) + '...' : inputStr;
+
+        step.innerHTML = `
+            <div class="step-header">
+                <span class="step-label action">
+                    <span class="status-spinner small"></span>
+                    ${escapeHtml(action)}
+                </span>
+                <span class="step-duration" data-start="${Date.now()}">running...</span>
+            </div>
+            <div class="step-content action-input">${escapeHtml(inputPreview)}</div>
+        `;
+
+        block.appendChild(step);
+        scrollToBottom();
+    }
+
+    function addObservation(content, action, duration) {
+        const block = ensureAgentBlock();
+
+        // Find the running action step and finalize it
+        const runningStep = block.querySelector('.step-running');
+        if (runningStep) {
+            runningStep.classList.remove('step-running');
+            const durEl = runningStep.querySelector('.step-duration');
+            if (durEl) {
+                durEl.textContent = duration ? duration.toFixed(1) + 's' : '';
+                delete durEl.dataset.start;
+            }
+            const label = runningStep.querySelector('.step-label');
+            if (label) {
+                label.innerHTML = escapeHtml(action || 'action');
+            }
+        }
+
+        // Add observation below it
+        const step = document.createElement('div');
+        step.className = 'step';
+
+        const truncated = content.length > 800 ? content.slice(0, 800) + '\n...[truncated]' : content;
+
+        step.innerHTML = `
+            <div class="step-header">
+                <span class="step-label observation">result</span>
+                <span class="step-duration">${duration ? duration.toFixed(1) + 's' : ''}</span>
+            </div>
+            <div class="step-content observation-content">${escapeHtml(truncated)}</div>
+        `;
+
+        block.appendChild(step);
+        scrollToBottom();
+    }
+
+    function addFinalAnswer(content, duration, totalDuration) {
+        removeStatusBar();
+        const block = ensureAgentBlock();
+
+        // Remove any lingering streaming block
+        if (streamingThinkingEl) {
+            const stepEl = streamingThinkingEl.closest('.step');
+            if (stepEl) stepEl.remove();
+            streamingThinkingEl = null;
+            streamingRawText = '';
+        }
+
+        const step = document.createElement('div');
+        step.className = 'step step-final';
+
+        const totalStr = totalDuration ? ` &middot; total ${totalDuration.toFixed(1)}s` : '';
+
+        step.innerHTML = `
+            <div class="step-header">
+                <span class="step-label final">answer</span>
+                <span class="step-duration">${duration ? duration.toFixed(1) + 's' : ''}${totalStr}</span>
+            </div>
+            <div class="step-content">${escapeHtml(content)}</div>
+        `;
+
+        block.appendChild(step);
+        scrollToBottom();
+    }
+
+    function addError(content, duration) {
+        removeStatusBar();
+        const block = ensureAgentBlock();
+
+        if (streamingThinkingEl) {
+            const stepEl = streamingThinkingEl.closest('.step');
+            if (stepEl) stepEl.remove();
+            streamingThinkingEl = null;
+            streamingRawText = '';
+        }
+
+        const step = document.createElement('div');
+        step.className = 'step';
+        step.innerHTML = `
+            <div class="step-header">
+                <span class="step-label error">error</span>
+                <span class="step-duration">${duration ? duration.toFixed(1) + 's' : ''}</span>
+            </div>
+            <div class="step-content">${escapeHtml(content)}</div>
+        `;
+
+        block.appendChild(step);
+        scrollToBottom();
+    }
+
+    // Legacy addStep for loading conversations from history
     function addStep(type, content, duration) {
         removeLoading();
-
-        if (!currentAgentBlock) {
-            createAgentBlock();
-        }
+        const block = ensureAgentBlock();
 
         const step = document.createElement('div');
         step.className = 'step';
@@ -140,17 +364,28 @@
             ${contentHtml}
         `;
 
-        currentAgentBlock.appendChild(step);
+        block.appendChild(step);
+        scrollToBottom();
+    }
+
+    // --- UI Helpers ---
+
+    function addUserMessage(text) {
+        if (welcome) welcome.style.display = 'none';
+        const div = document.createElement('div');
+        div.className = 'message message-user';
+        div.innerHTML = `<div class="bubble">${escapeHtml(text)}</div>`;
+        messages.appendChild(div);
         scrollToBottom();
     }
 
     function addLoading() {
-        if (!currentAgentBlock) createAgentBlock();
+        const block = ensureAgentBlock();
         const loading = document.createElement('div');
         loading.className = 'loading';
         loading.id = 'loading-indicator';
         loading.innerHTML = '<span></span><span></span><span></span>';
-        currentAgentBlock.appendChild(loading);
+        block.appendChild(loading);
         scrollToBottom();
     }
 
@@ -167,8 +402,14 @@
     function setProcessing(processing) {
         isProcessing = processing;
         sendBtn.disabled = processing;
-        if (!processing) {
+        if (processing) {
+            setStatus('processing', 'processing');
+        } else {
+            setStatus('connected', 'ready');
             currentAgentBlock = null;
+            streamingThinkingEl = null;
+            streamingRawText = '';
+            taskStartTime = null;
         }
     }
 
@@ -205,7 +446,9 @@
         autoResize();
 
         setProcessing(true);
-        createAgentBlock();
+        taskStartTime = Date.now();
+        currentAgentBlock = null;
+        ensureAgentBlock();
         addLoading();
 
         ws.send(JSON.stringify({
@@ -269,7 +512,7 @@
                         addUserMessage(msg.content);
                     } else if (msg.role === 'agent') {
                         currentAgentBlock = null;
-                        createAgentBlock();
+                        ensureAgentBlock();
                         if (msg.steps) {
                             msg.steps.forEach(step => {
                                 addStep(step.type, step.content, step.duration || 0);
@@ -460,13 +703,17 @@
         try {
             const resp = await fetch('/api/health');
             const data = await resp.json();
-            if (data.llm_connected) {
-                setStatus('connected', 'ready');
-            } else {
-                setStatus('error', 'llm offline');
+            if (!isProcessing) {
+                if (data.llm_connected) {
+                    setStatus('connected', 'ready');
+                } else {
+                    setStatus('error', 'llm offline');
+                }
             }
         } catch {
-            setStatus('error', 'backend offline');
+            if (!isProcessing) {
+                setStatus('error', 'backend offline');
+            }
         }
     }
 
