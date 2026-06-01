@@ -1,0 +1,11 @@
+# Desktop notification skill
+# Sends notifications via notify-send
+
+name: notify
+description: Send a desktop notification with a title and message.
+timeout: 5
+
+commands:
+  send: "notify-send '${title}' '${message}'"
+
+default_action: send

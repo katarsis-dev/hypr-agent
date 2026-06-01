@@ -1,0 +1,23 @@
+# ╔══════════════════════════════════════════════════════════════╗
+# ║  YAML Skill Template — copy this to create a new skill     ║
+# ╚══════════════════════════════════════════════════════════════╝
+#
+# Just copy this file, rename it, and fill in your commands.
+# The agent will auto-detect it on next startup.
+#
+# Variables you can use in commands:
+#   ${input}   — raw text input from the agent
+#   ${action}  — which action was chosen
+#   Any key from the agent's JSON input (e.g. ${path}, ${query}, ${content})
+
+name: my_skill              # unique name (the agent uses this to call it)
+description: What this skill does — the agent reads this to decide when to use it.
+timeout: 30                 # max seconds before killing the command
+
+# Define actions (the agent picks one):
+commands:
+  action_one: "echo 'Running action one with input: ${input}'"
+  action_two: "echo 'Action two: ${some_param}'"
+
+# Which action to use if the agent doesn't specify:
+default_action: action_one
