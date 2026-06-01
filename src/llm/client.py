@@ -17,6 +17,7 @@ class LLMClient:
             f"http://{config.llm.server.host}:{config.llm.server.port}"
         )
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(180.0))
+        self._cached_system: str | None = None
 
     async def generate(
         self,
@@ -27,10 +28,7 @@ class LLMClient:
         stop: list[str] | None = None,
     ) -> str:
         """Generate a completion (non-streaming)."""
-        messages = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
+        messages = self._build_messages(prompt, system)
 
         payload = {
             "messages": messages,
@@ -39,6 +37,7 @@ class LLMClient:
             "repeat_penalty": config.agent.repeat_penalty,
             "max_tokens": max_tokens,
             "stream": False,
+            "cache_prompt": True,
         }
         if stop:
             payload["stop"] = stop
@@ -60,10 +59,7 @@ class LLMClient:
         stop: list[str] | None = None,
     ) -> AsyncGenerator[str, None]:
         """Generate a completion with streaming tokens."""
-        messages = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
+        messages = self._build_messages(prompt, system)
 
         payload = {
             "messages": messages,
@@ -72,6 +68,7 @@ class LLMClient:
             "repeat_penalty": config.agent.repeat_penalty,
             "max_tokens": max_tokens,
             "stream": True,
+            "cache_prompt": True,
         }
         if stop:
             payload["stop"] = stop
@@ -93,6 +90,19 @@ class LLMClient:
                     content = delta.get("content", "")
                     if content:
                         yield content
+
+    def _build_messages(
+        self, prompt: str, system: str,
+    ) -> list[dict[str, str]]:
+        """Build message list, caching the system prompt for reuse."""
+        messages: list[dict[str, str]] = []
+        if system:
+            self._cached_system = system
+            messages.append({"role": "system", "content": system})
+        elif self._cached_system:
+            messages.append({"role": "system", "content": self._cached_system})
+        messages.append({"role": "user", "content": prompt})
+        return messages
 
     async def health_check(self) -> bool:
         """Check if llama-server is reachable."""
