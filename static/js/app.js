@@ -35,6 +35,7 @@
     let streamingThinkingEl = null;   // element receiving streaming tokens
     let streamingRawText = '';        // accumulated raw text from thinking_delta
     let taskStartTime = null;
+    let activeStreamConvId = null;    // conversation ID of in-flight WS stream
 
     // --- WebSocket Connection ---
 
@@ -48,7 +49,9 @@
             setStatus('connected', 'ready');
         };
 
-        ws.onclose = () => {
+        ws.onclose = (event) => {
+            // Code 1000 = normal close (e.g., conversation switch) — don't auto-reconnect
+            if (event.code === 1000) return;
             setStatus('error', 'disconnected');
             setTimeout(connectWS, 3000);
         };
@@ -64,8 +67,15 @@
     }
 
     function handleWSMessage(data) {
+        // Ignore stale events from a previous conversation
+        if (activeStreamConvId && data.type !== 'meta' && data.type !== 'done'
+            && conversationId !== activeStreamConvId) {
+            return;
+        }
+
         switch (data.type) {
             case 'meta':
+                activeStreamConvId = data.conversation_id;
                 conversationId = data.conversation_id;
                 loadConversations();
                 break;
@@ -497,12 +507,23 @@
     }
 
     async function loadConversation(convId) {
+        // If processing, abort by reconnecting WebSocket
+        if (isProcessing) {
+            setProcessing(false);
+            if (ws) {
+                ws.close();
+            }
+            connectWS();
+        }
+
         try {
             const resp = await fetch(`/api/conversations/${convId}`);
             const data = await resp.json();
 
             conversationId = convId;
+            activeStreamConvId = null;
             messages.innerHTML = '';
+            currentAgentBlock = null;
             if (welcome) welcome.style.display = 'none';
 
             // Render conversation messages
@@ -513,13 +534,7 @@
                     } else if (msg.role === 'agent') {
                         currentAgentBlock = null;
                         ensureAgentBlock();
-                        if (msg.steps) {
-                            msg.steps.forEach(step => {
-                                addStep(step.type, step.content, step.duration || 0);
-                            });
-                        } else {
-                            addStep('final', msg.content, 0);
-                        }
+                        renderSavedAgentMessage(msg);
                     }
                 });
                 currentAgentBlock = null;
@@ -534,8 +549,39 @@
         }
     }
 
+    function renderSavedAgentMessage(msg) {
+        // Agent messages from memory have: thought, action, action_input, observation, final_answer
+        if (msg.thought) {
+            addStep('thought', msg.thought, 0);
+        }
+        if (msg.action) {
+            const inputStr = msg.action_input || '';
+            addStep('action', `${msg.action}(${inputStr})`, 0);
+        }
+        if (msg.observation) {
+            addStep('observation', msg.observation, 0);
+        }
+        if (msg.final_answer) {
+            addStep('final', msg.final_answer, 0);
+        }
+        // Fallback: if none of the above, show raw content if present
+        if (!msg.thought && !msg.action && !msg.final_answer && msg.content) {
+            addStep('final', msg.content, 0);
+        }
+    }
+
     function startNewChat() {
+        // Abort in-flight request if any
+        if (isProcessing) {
+            setProcessing(false);
+            if (ws) {
+                ws.close();
+            }
+            connectWS();
+        }
+
         conversationId = null;
+        activeStreamConvId = null;
         messages.innerHTML = '';
         if (welcome) welcome.style.display = 'block';
         currentAgentBlock = null;
