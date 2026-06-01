@@ -99,9 +99,17 @@ if [ "$MLOCK" = "true" ]; then
     LLAMA_FLAGS="${LLAMA_FLAGS} --mlock"
 fi
 
+# Performance optimizations
+LLAMA_FLAGS="${LLAMA_FLAGS} --cache-type-k q4_0"    # KV cache quantization: ~30% less RAM
+LLAMA_FLAGS="${LLAMA_FLAGS} --flash-attn"            # Flash attention: 10-20% faster
+LLAMA_FLAGS="${LLAMA_FLAGS} --cont-batching"          # Continuous batching for better throughput
+LLAMA_FLAGS="${LLAMA_FLAGS} --slots 2"                # 2 slots: prompt cache + active request
+LLAMA_FLAGS="${LLAMA_FLAGS} --cache-reuse 256"        # Reuse KV cache for common prefixes (system prompt)
+
 echo -e "${GREEN}Starting llama-server...${NC}"
 echo -e "  Model: ${DEFAULT_MODEL}"
 echo -e "  Threads: ${THREADS} | Context: ${CTX_SIZE} | Port: ${LLM_PORT}"
+echo -e "  Optimizations: KV-Q4, flash-attn, cont-batch, cache-reuse"
 echo ""
 
 # Start llama-server in background

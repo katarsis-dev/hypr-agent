@@ -21,6 +21,12 @@ llm:
     batch_size: 512      # good for Zen+ L2 cache
     mlock: true          # pin model in RAM, no swap thrashing
     mmap: true           # fast load from NVMe
+    # Performance flags (set in run.sh):
+    # --cache-type-k q4_0   KV cache quantization (~30% less RAM)
+    # --flash-attn           Flash attention (10-20% faster)
+    # --cont-batching        Continuous batching for throughput
+    # --cache-reuse 256      Reuse KV cache for system prompt prefix
+    # --slots 2              2 parallel slots
 
 agent:
   max_steps: 15          # max reasoning steps per task

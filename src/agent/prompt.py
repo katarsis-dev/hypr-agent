@@ -38,6 +38,17 @@ FINAL_ANSWER: <your response to the user>
 9. Be careful with shell commands — don't run destructive operations without confirming
 """
 
+FAST_SYSTEM_PROMPT = """\
+You are hypr-agent, a local AI assistant running on the user's machine.
+Answer the user's question directly. Be concise and helpful.
+
+{user_profile}
+
+Respond with:
+THOUGHT: <brief reasoning>
+FINAL_ANSWER: <your response>
+"""
+
 
 def build_system_prompt(tools_description: str) -> str:
     """Build the full system prompt with user profile injected."""
@@ -49,6 +60,15 @@ def build_system_prompt(tools_description: str) -> str:
         user_profile=profile_section,
         tools_description=tools_description,
     )
+
+
+def build_fast_prompt() -> str:
+    """Build a lightweight prompt for simple questions (no tools)."""
+    profile = get_profile()
+    profile_section = ""
+    if profile.strip():
+        profile_section = f"## About the User\n\n{profile}\n"
+    return FAST_SYSTEM_PROMPT.format(user_profile=profile_section)
 
 OBSERVATION_TEMPLATE = "OBSERVATION: {result}"
 
