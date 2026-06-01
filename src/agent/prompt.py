@@ -1,8 +1,12 @@
 """System prompts and templates for the ReAct agent."""
 
+from src.agent.profile import get_profile
+
 SYSTEM_PROMPT = """\
 You are hypr-agent, a local AI assistant running on the user's machine.
 You can think step-by-step and use tools to accomplish tasks.
+
+{user_profile}
 
 ## How to respond
 
@@ -33,6 +37,18 @@ FINAL_ANSWER: <your response to the user>
 8. For file operations, use absolute paths
 9. Be careful with shell commands — don't run destructive operations without confirming
 """
+
+
+def build_system_prompt(tools_description: str) -> str:
+    """Build the full system prompt with user profile injected."""
+    profile = get_profile()
+    profile_section = ""
+    if profile.strip():
+        profile_section = f"## About the User\n\n{profile}\n"
+    return SYSTEM_PROMPT.format(
+        user_profile=profile_section,
+        tools_description=tools_description,
+    )
 
 OBSERVATION_TEMPLATE = "OBSERVATION: {result}"
 

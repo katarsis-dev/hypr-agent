@@ -324,6 +324,53 @@
         sidebar.classList.toggle('collapsed');
     }
 
+    // --- Settings Tabs ---
+
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
+            if (btn.dataset.tab === 'profile') loadProfile();
+        });
+    });
+
+    // --- Profile ---
+
+    async function loadProfile() {
+        try {
+            const resp = await fetch('/api/profile');
+            const data = await resp.json();
+            document.getElementById('profile-editor').value = data.content || '';
+            document.getElementById('profile-path-display').textContent = data.path || '';
+            document.getElementById('profile-status').textContent = '';
+        } catch (e) {
+            console.error('Failed to load profile:', e);
+        }
+    }
+
+    async function saveProfile() {
+        const content = document.getElementById('profile-editor').value;
+        try {
+            const resp = await fetch('/api/profile', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content }),
+            });
+            const data = await resp.json();
+            document.getElementById('profile-status').textContent = 'Saved!';
+            setTimeout(() => {
+                document.getElementById('profile-status').textContent = '';
+            }, 3000);
+        } catch (e) {
+            document.getElementById('profile-status').textContent = 'Error saving';
+            console.error('Failed to save profile:', e);
+        }
+    }
+
+    document.getElementById('save-profile').addEventListener('click', saveProfile);
+
     // --- Settings ---
 
     async function loadModels() {

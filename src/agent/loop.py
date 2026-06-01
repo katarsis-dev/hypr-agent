@@ -8,7 +8,7 @@ import time
 from typing import Any, AsyncGenerator
 
 from src.agent.memory import ConversationMemory
-from src.agent.prompt import SYSTEM_PROMPT, TOOL_DESCRIPTION_TEMPLATE
+from src.agent.prompt import TOOL_DESCRIPTION_TEMPLATE, build_system_prompt
 from src.config import config
 from src.llm.client import llm_client
 from src.tools import tool_registry
@@ -64,7 +64,7 @@ class AgentLoop:
                 description=tool.description,
                 input_schema=tool.input_schema,
             )
-        return SYSTEM_PROMPT.format(tools_description=tools_desc)
+        return build_system_prompt(tools_desc)
 
     def _parse_response(self, response: str) -> AgentStep:
         """Parse LLM response into structured step."""

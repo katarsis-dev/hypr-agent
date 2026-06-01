@@ -40,29 +40,48 @@
             <!-- Settings Panel (hidden by default) -->
             <div id="settings-panel" class="hidden">
                 <div class="settings-content">
-                    <h2>Settings</h2>
-                    <div class="setting-row">
-                        <label for="model-select">Model</label>
-                        <select id="model-select"></select>
+                    <div class="settings-tabs">
+                        <button class="tab-btn active" data-tab="general">General</button>
+                        <button class="tab-btn" data-tab="profile">Profile</button>
                     </div>
-                    <div class="setting-row">
-                        <label for="temperature">Temperature</label>
-                        <input type="range" id="temperature" min="0" max="1.5" step="0.1" value="0.7">
-                        <span id="temp-value">0.7</span>
+
+                    <!-- General Tab -->
+                    <div class="tab-content active" id="tab-general">
+                        <div class="setting-row">
+                            <label for="model-select">Model</label>
+                            <select id="model-select"></select>
+                        </div>
+                        <div class="setting-row">
+                            <label for="temperature">Temperature</label>
+                            <input type="range" id="temperature" min="0" max="1.5" step="0.1" value="0.7">
+                            <span id="temp-value">0.7</span>
+                        </div>
+                        <div class="setting-row">
+                            <label for="ctx-size">Context Size</label>
+                            <select id="ctx-size">
+                                <option value="2048">2048</option>
+                                <option value="4096" selected>4096</option>
+                                <option value="8192">8192</option>
+                            </select>
+                        </div>
+                        <div class="setting-row">
+                            <label for="threads">CPU Threads</label>
+                            <input type="number" id="threads" min="1" max="8" value="6">
+                        </div>
+                        <button id="save-settings" class="btn">Save</button>
                     </div>
-                    <div class="setting-row">
-                        <label for="ctx-size">Context Size</label>
-                        <select id="ctx-size">
-                            <option value="2048">2048</option>
-                            <option value="4096" selected>4096</option>
-                            <option value="8192">8192</option>
-                        </select>
+
+                    <!-- Profile Tab -->
+                    <div class="tab-content" id="tab-profile">
+                        <p class="profile-hint">Teach the agent about you. This is injected into every conversation. Edit and save — no restart needed.</p>
+                        <textarea id="profile-editor" rows="16" placeholder="Loading profile..."></textarea>
+                        <div class="profile-actions">
+                            <button id="save-profile" class="btn">Save Profile</button>
+                            <span id="profile-status"></span>
+                        </div>
+                        <p class="profile-path">File: <code id="profile-path-display"></code></p>
                     </div>
-                    <div class="setting-row">
-                        <label for="threads">CPU Threads</label>
-                        <input type="number" id="threads" min="1" max="8" value="6">
-                    </div>
-                    <button id="save-settings" class="btn">Save</button>
+
                     <button id="close-settings" class="btn btn-ghost">Close</button>
                 </div>
             </div>

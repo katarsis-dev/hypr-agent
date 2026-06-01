@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 
 from src.agent.loop import AgentLoop
 from src.agent.memory import ConversationMemory
+from src.agent.profile import get_profile, get_profile_path, init_profile, save_profile
 from src.api.models import (
     AgentStepResponse,
     ChatRequest,
@@ -204,3 +205,20 @@ async def get_conversation(conv_id: str) -> JSONResponse:
     memory = ConversationMemory(conversation_id=conv_id)
     data = memory.load()
     return JSONResponse(data)
+
+
+@router.get("/profile")
+async def get_user_profile() -> JSONResponse:
+    """Get the user's personal profile."""
+    content = get_profile()
+    if not content:
+        content = init_profile()
+    return JSONResponse({"content": content, "path": get_profile_path()})
+
+
+@router.post("/profile")
+async def update_user_profile(body: dict[str, Any]) -> JSONResponse:
+    """Update the user's personal profile. Expects {"content": "..."}."""
+    content = body.get("content", "")
+    save_profile(content)
+    return JSONResponse({"status": "saved", "path": get_profile_path()})
