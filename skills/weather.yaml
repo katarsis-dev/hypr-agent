@@ -1,0 +1,10 @@
+# Weather skill — get current weather using wttr.in (no API key needed)
+
+name: weather
+description: Get current weather for a location.
+timeout: 10
+
+commands:
+  check: "curl -s 'wttr.in/${location}?format=3' 2>/dev/null || echo 'Error: could not fetch weather'"
+
+default_action: check

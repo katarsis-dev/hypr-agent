@@ -1,0 +1,12 @@
+# Clipboard skill — read/write Wayland clipboard
+# Works with wl-copy/wl-paste (Hyprland/Wayland)
+
+name: clipboard
+description: Read or write the system clipboard (Wayland).
+timeout: 5
+
+commands:
+  read: "wl-paste 2>/dev/null || xclip -selection clipboard -o 2>/dev/null || echo '(clipboard empty)'"
+  write: "echo '${content}' | wl-copy 2>/dev/null || echo '${content}' | xclip -selection clipboard"
+
+default_action: read

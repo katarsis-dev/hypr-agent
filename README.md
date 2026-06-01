@@ -147,6 +147,64 @@ All settings live in `config.yaml`:
 | `system_info` | CPU, RAM, disk, processes, OS info |
 | `run_code` | Execute Python code snippets |
 | `web_search` | Search the web (DuckDuckGo) |
+| `clipboard` | Read/write Wayland clipboard |
+| `notify` | Send desktop notifications |
+| `weather` | Get weather for any location |
+
+## Adding New Skills
+
+Two ways to add skills — no restart needed, just add the file and restart the server.
+
+### Way 1: YAML skill (easiest — no Python)
+
+Create a `.yaml` file in the `skills/` folder:
+
+```yaml
+# skills/my_skill.yaml
+name: my_skill
+description: What this skill does — the agent reads this.
+timeout: 30
+
+commands:
+  action_one: "echo 'Hello ${input}'"
+  action_two: "ls ${path}"
+
+default_action: action_one
+```
+
+That's it. The agent auto-detects it on next startup.
+
+See `skills/_template.yaml` for a full reference.
+
+### Way 2: Python tool (more control)
+
+Drop a `.py` file in `src/tools/`:
+
+```python
+# src/tools/my_tool.py
+from __future__ import annotations
+from typing import Any
+
+class MyTool:
+    name = "my_tool"
+    description = "What this tool does."
+    input_schema = '{"param": "description"}'
+
+    async def execute(self, **kwargs: Any) -> str:
+        param = kwargs.get("param", "")
+        return f"Result: {param}"
+```
+
+No imports or registration needed — auto-discovered on startup.
+
+See `src/tools/_template.py` for a full reference.
+
+### Rules
+
+- Files starting with `_` are ignored (use for templates/drafts)
+- Each tool needs: `name`, `description`, `input_schema`, `execute()`
+- YAML skills are great for wrapping shell commands
+- Python tools are better when you need logic, async, or error handling
 
 ## Hardware Tuning Guide
 
@@ -183,6 +241,11 @@ hypr-agent/
 ├── config.yaml          # All configuration
 ├── run.sh               # One-command startup
 ├── pyproject.toml       # Python dependencies
+├── skills/              # ← Drop YAML skills here (auto-detected)
+│   ├── _template.yaml   # Template for new YAML skills
+│   ├── clipboard.yaml   # Wayland clipboard
+│   ├── notify.yaml      # Desktop notifications
+│   └── weather.yaml     # Weather via wttr.in
 ├── src/
 │   ├── main.py          # FastAPI app
 │   ├── config.py        # Config loader
@@ -192,12 +255,14 @@ hypr-agent/
 │   │   └── memory.py    # Conversation storage
 │   ├── llm/
 │   │   └── client.py    # llama-server HTTP client
-│   ├── tools/
+│   ├── tools/           # ← Drop Python tools here (auto-detected)
+│   │   ├── _template.py # Template for new Python tools
 │   │   ├── filesystem.py
 │   │   ├── shell.py
 │   │   ├── system.py
 │   │   ├── code.py
-│   │   └── search.py
+│   │   ├── search.py
+│   │   └── yaml_skill.py # YAML skill engine
 │   └── api/
 │       ├── routes.py    # REST + WebSocket endpoints
 │       └── models.py    # Request/response schemas
