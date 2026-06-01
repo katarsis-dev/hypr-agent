@@ -45,17 +45,52 @@ llama-server (llama.cpp, model in RAM)
 
 ## Quick Start (Arch Linux)
 
-### 1. Install dependencies
+### 1. Install llama.cpp
+
+You need the `llama-server` binary. Choose one method:
+
+#### Option A: Build from source (recommended — most reliable)
 
 ```bash
-# llama.cpp (provides llama-server)
-pacman -S llama.cpp
+cd ~/Dev  # or wherever you keep projects
+git clone https://github.com/ggerganov/llama.cpp.git
+cd llama.cpp
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release -j$(nproc)
 
-# Python (if not already installed)
+# Binary will be at: ~/Dev/llama.cpp/build/bin/llama-server
+# run.sh auto-detects this path
+```
+
+To update later:
+```bash
+cd ~/Dev/llama.cpp
+git pull
+cmake --build build --config Release -j$(nproc)
+```
+
+#### Option B: Pacman (if available in repos)
+
+```bash
+pacman -S llama.cpp
+```
+
+#### Option C: AUR
+
+```bash
+yay -S llama-cpp-git
+```
+
+> **Note:** AUR packages can break after updates (shared library mismatches).
+> If you get `symbol lookup error` or `libcudart.so` errors, switch to Option A.
+
+### 2. Install Python
+
+```bash
 pacman -S python python-pip
 ```
 
-### 2. Clone and set up
+### 3. Clone and set up
 
 ```bash
 git clone https://github.com/katarsis-dev/hypr-agent.git
@@ -72,7 +107,7 @@ pip install -e .
 pip install -e ".[search]"
 ```
 
-### 3. Get a model
+### 4. Get a model
 
 Download a GGUF model to your models directory (default: `~/models`):
 
@@ -87,7 +122,7 @@ mkdir -p ~/models
 # ollama pull qwen2.5:7b-instruct-q4_K_M
 ```
 
-### 4. Configure
+### 5. Configure
 
 Edit `config.yaml`:
 
@@ -100,7 +135,7 @@ llm:
     ctx_size: 4096
 ```
 
-### 5. Run
+### 6. Run
 
 ```bash
 chmod +x run.sh
@@ -120,6 +155,69 @@ llama-server -m ~/models/qwen2.5-7b-instruct-q4_k_m.gguf \
 source .venv/bin/activate
 python -m uvicorn src.main:app --host 127.0.0.1 --port 8080
 ```
+
+## llama.cpp Configuration
+
+### Binary Detection
+
+`run.sh` searches these paths in order:
+1. System PATH (`llama-server`)
+2. `~/Dev/llama.cpp/build/bin/llama-server` (source build)
+3. `~/llama.cpp/build/bin/llama-server` (source build alt)
+4. `/opt/llama-cpp/bin/llama-server` (AUR CUDA package)
+5. `/usr/local/bin/llama-server` (manual install)
+6. `/usr/bin/llama-server` (pacman)
+
+### Server Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-m <path>` | from config.yaml | Path to the GGUF model file |
+| `--port` | `11434` | Port for the OpenAI-compatible API |
+| `--threads` | `6` | CPU threads for inference (leave 2 for OS) |
+| `--ctx-size` | `4096` | Max context window in tokens |
+| `--batch-size` | `512` | Tokens processed per batch (affects prompt processing speed) |
+| `--mlock` | enabled | Lock model in RAM, prevent swap |
+
+### Performance Tuning
+
+```bash
+# For Ryzen 5 3500U (4c/8t, 15W):
+llama-server -m ~/models/your-model.gguf \
+    --threads 6 \
+    --ctx-size 4096 \
+    --batch-size 512 \
+    --mlock \
+    --mmap
+
+# For faster responses (smaller context, less accuracy):
+    --ctx-size 2048
+
+# For longer conversations (more RAM):
+    --ctx-size 8192
+
+# KV cache quantization (saves ~30% RAM):
+    --cache-type-k q4_0 --cache-type-v q4_0
+```
+
+### Model Recommendations
+
+| Model | Size | RAM | Speed (Ryzen 5 3500U) | Best for |
+|-------|------|-----|----------------------|----------|
+| Qwen 2.5 7B Instruct Q4_K_M | 4.4 GB | ~5.2 GB | 6-10 tok/s | Agentic tasks, tool use |
+| Qwen 2.5 Coder 3B Q4_K_M | 2.0 GB | ~2.8 GB | 12-18 tok/s | Code generation |
+| Qwen 2.5 1.5B Instruct Q4_K_M | 1.0 GB | ~1.5 GB | 20-30 tok/s | Quick Q&A, routing |
+| Qwen 3.5 0.8B Q4_K_M | 0.5 GB | ~0.8 GB | 30-50 tok/s | Intent detection, classification |
+
+### Troubleshooting
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `llama-server not found` | Binary not in search paths | Build from source (see Quick Start step 1) |
+| `symbol lookup error: undefined symbol` | AUR package lib mismatch | Remove AUR package, build from source |
+| `libcudart.so: cannot open` | CUDA package but no NVIDIA GPU | `pacman -R llama-cpp-cuda-git`, use CPU build |
+| `mlock failed` | Insufficient memory lock limit | `ulimit -l unlimited` or edit `/etc/security/limits.conf` |
+| `model not found` | Wrong filename in config.yaml | Check `ls ~/models/` and update `default_model` |
 
 ## Configuration
 
