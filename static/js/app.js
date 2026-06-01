@@ -319,7 +319,7 @@
                 <span class="step-label final">answer</span>
                 <span class="step-duration">${duration ? duration.toFixed(1) + 's' : ''}${totalStr}</span>
             </div>
-            <div class="step-content">${escapeHtml(content)}</div>
+            <div class="step-content markdown-body">${renderMarkdown(content)}</div>
         `;
 
         block.appendChild(step);
@@ -366,6 +366,8 @@
         let contentHtml;
         if (type === 'observation') {
             contentHtml = `<div class="step-content observation-content">${escapeHtml(content)}</div>`;
+        } else if (type === 'final') {
+            contentHtml = `<div class="step-content markdown-body">${renderMarkdown(content)}</div>`;
         } else {
             contentHtml = `<div class="step-content">${escapeHtml(content)}</div>`;
         }
@@ -445,6 +447,17 @@
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    function renderMarkdown(text) {
+        if (typeof marked !== 'undefined') {
+            try {
+                return marked.parse(text, { breaks: true });
+            } catch {
+                return escapeHtml(text);
+            }
+        }
+        return escapeHtml(text);
     }
 
     function formatInput(input) {
@@ -689,6 +702,50 @@
         document.querySelectorAll('.conv-item').forEach(el => el.classList.remove('active'));
     }
 
+    // --- Export Conversation ---
+
+    async function exportConversation() {
+        if (!conversationId) {
+            alert('No conversation to export.');
+            return;
+        }
+
+        try {
+            const resp = await fetch(`/api/conversations/${conversationId}`);
+            const data = await resp.json();
+
+            let md = `# Conversation\n\n`;
+            if (data.messages) {
+                data.messages.forEach(msg => {
+                    if (msg.role === 'user') {
+                        md += `## User\n\n${msg.content}\n\n`;
+                    } else if (msg.role === 'agent') {
+                        md += `## Agent\n\n`;
+                        if (msg.thought) md += `**Thought:** ${msg.thought}\n\n`;
+                        if (msg.action) md += `**Action:** \`${msg.action}(${msg.action_input || ''})\`\n\n`;
+                        if (msg.observation) md += `**Result:**\n\`\`\`\n${msg.observation}\n\`\`\`\n\n`;
+                        if (msg.final_answer) md += `${msg.final_answer}\n\n`;
+                        if (!msg.thought && !msg.action && !msg.final_answer && msg.content) {
+                            md += `${msg.content}\n\n`;
+                        }
+                        md += `---\n\n`;
+                    }
+                });
+            }
+
+            const blob = new Blob([md], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `hypr-agent-${conversationId.slice(0, 8)}.md`;
+            a.click();
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            console.error('Export failed:', e);
+            alert('Failed to export conversation.');
+        }
+    }
+
     function formatDate(isoStr) {
         try {
             const d = new Date(isoStr);
@@ -843,6 +900,7 @@
         sidebar.classList.toggle('open');
     });
     newChatBtn.addEventListener('click', startNewChat);
+    document.getElementById('export-btn').addEventListener('click', exportConversation);
 
     // Attach file button
     attachBtn.addEventListener('click', () => fileInput.click());
