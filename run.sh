@@ -51,13 +51,22 @@ if [ ! -f "$MODEL_PATH" ]; then
     exit 1
 fi
 
-# Check llama-server is installed
-if ! command -v llama-server &> /dev/null; then
+# Find llama-server binary (handles different install locations)
+LLAMA_SERVER=""
+if command -v llama-server &> /dev/null; then
+    LLAMA_SERVER="llama-server"
+elif [ -x "/opt/llama-cpp/bin/llama-server" ]; then
+    LLAMA_SERVER="/opt/llama-cpp/bin/llama-server"
+elif [ -x "/usr/local/bin/llama-server" ]; then
+    LLAMA_SERVER="/usr/local/bin/llama-server"
+else
     echo -e "${RED}Error: llama-server not found${NC}"
     echo "Install with: pacman -S llama.cpp"
     echo "  or: yay -S llama.cpp-git"
+    echo "  or: yay -S llama-cpp-cuda-git (for CUDA)"
     exit 1
 fi
+echo -e "  Binary: ${LLAMA_SERVER}"
 
 # Check Python
 if ! command -v python &> /dev/null && ! command -v python3 &> /dev/null; then
@@ -78,7 +87,7 @@ echo -e "  Threads: ${THREADS} | Context: ${CTX_SIZE} | Port: ${LLM_PORT}"
 echo ""
 
 # Start llama-server in background
-llama-server $LLAMA_FLAGS &
+$LLAMA_SERVER $LLAMA_FLAGS &
 LLAMA_PID=$!
 
 # Wait for llama-server to be ready
