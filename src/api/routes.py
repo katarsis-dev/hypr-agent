@@ -126,7 +126,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
 
 @router.websocket("/ws/chat")
 async def websocket_chat(ws: WebSocket) -> None:
-    """WebSocket endpoint for streaming agent steps."""
+    """WebSocket endpoint for streaming agent events."""
     await ws.accept()
 
     try:
@@ -144,42 +144,9 @@ async def websocket_chat(ws: WebSocket) -> None:
                 "conversation_id": agent.memory.conversation_id,
             })
 
-            async for step in agent.run(user_input):
-                payload: dict[str, Any] = {"duration": step.duration}
-
-                if step.thought:
-                    payload["type"] = "thought"
-                    payload["content"] = step.thought
-                    await ws.send_json(payload)
-
-                if step.action:
-                    await ws.send_json({
-                        "type": "action",
-                        "action": step.action,
-                        "action_input": step.action_input,
-                        "duration": step.duration,
-                    })
-
-                if step.observation is not None:
-                    await ws.send_json({
-                        "type": "observation",
-                        "content": step.observation,
-                        "duration": step.duration,
-                    })
-
-                if step.final_answer:
-                    await ws.send_json({
-                        "type": "final_answer",
-                        "content": step.final_answer,
-                        "duration": step.duration,
-                    })
-
-                if step.error:
-                    await ws.send_json({
-                        "type": "error",
-                        "content": step.error,
-                        "duration": step.duration,
-                    })
+            # Stream granular events to the frontend
+            async for event in agent.run_events(user_input):
+                await ws.send_json(event.to_ws())
 
             await ws.send_json({"type": "done"})
 
