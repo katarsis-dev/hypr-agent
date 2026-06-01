@@ -26,6 +26,9 @@
     const sidebarOpen = document.getElementById('sidebar-open');
     const newChatBtn = document.getElementById('new-chat-btn');
     const conversationList = document.getElementById('conversation-list');
+    const attachBtn = document.getElementById('attach-btn');
+    const fileInput = document.getElementById('file-input');
+    const attachmentPreview = document.getElementById('attachment-preview');
 
     // State
     let ws = null;
@@ -36,6 +39,7 @@
     let streamingRawText = '';        // accumulated raw text from thinking_delta
     let taskStartTime = null;
     let activeStreamConvId = null;    // conversation ID of in-flight WS stream
+    let pendingAttachments = [];       // files uploaded and ready to send
 
     // --- WebSocket Connection ---
 
@@ -380,11 +384,21 @@
 
     // --- UI Helpers ---
 
-    function addUserMessage(text) {
+    function addUserMessage(text, attachments) {
         if (welcome) welcome.style.display = 'none';
         const div = document.createElement('div');
         div.className = 'message message-user';
-        div.innerHTML = `<div class="bubble">${escapeHtml(text)}</div>`;
+
+        let attachHtml = '';
+        if (attachments && attachments.length > 0) {
+            const chips = attachments.map(att => {
+                const sizeStr = formatFileSize(att.size);
+                return `<span class="msg-attachment">${getFileIcon(att.filename)} ${escapeHtml(att.filename)} <span class="attachment-size">${sizeStr}</span></span>`;
+            }).join('');
+            attachHtml = `<div class="msg-attachments">${chips}</div>`;
+        }
+
+        div.innerHTML = `<div class="bubble">${escapeHtml(text)}${attachHtml}</div>`;
         messages.appendChild(div);
         scrollToBottom();
     }
@@ -451,7 +465,7 @@
             return;
         }
 
-        addUserMessage(text);
+        addUserMessage(text, pendingAttachments);
         userInput.value = '';
         autoResize();
 
@@ -461,10 +475,97 @@
         ensureAgentBlock();
         addLoading();
 
-        ws.send(JSON.stringify({
+        const payload = {
             message: text,
             conversation_id: conversationId,
-        }));
+        };
+        if (pendingAttachments.length > 0) {
+            payload.attachments = pendingAttachments;
+        }
+
+        ws.send(JSON.stringify(payload));
+        clearAttachments();
+    }
+
+    // --- File Attachments ---
+
+    async function uploadFile(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const resp = await fetch('/api/upload', { method: 'POST', body: formData });
+            if (!resp.ok) throw new Error('Upload failed');
+            return await resp.json();
+        } catch (e) {
+            console.error('Upload error:', e);
+            return null;
+        }
+    }
+
+    async function handleFileSelect(files) {
+        for (const file of files) {
+            const result = await uploadFile(file);
+            if (result) {
+                pendingAttachments.push(result);
+            }
+        }
+        renderAttachmentPreview();
+    }
+
+    function renderAttachmentPreview() {
+        if (pendingAttachments.length === 0) {
+            attachmentPreview.classList.add('hidden');
+            attachmentPreview.innerHTML = '';
+            return;
+        }
+
+        attachmentPreview.classList.remove('hidden');
+        attachmentPreview.innerHTML = pendingAttachments.map((att, i) => {
+            const sizeStr = formatFileSize(att.size);
+            return `<div class="attachment-chip">
+                <span class="attachment-icon">${getFileIcon(att.filename)}</span>
+                <span class="attachment-name">${escapeHtml(att.filename)}</span>
+                <span class="attachment-size">${sizeStr}</span>
+                <button class="attachment-remove" data-index="${i}" title="Remove">&times;</button>
+            </div>`;
+        }).join('');
+
+        // Bind remove buttons
+        attachmentPreview.querySelectorAll('.attachment-remove').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const idx = parseInt(e.target.dataset.index, 10);
+                pendingAttachments.splice(idx, 1);
+                renderAttachmentPreview();
+            });
+        });
+    }
+
+    function clearAttachments() {
+        pendingAttachments = [];
+        renderAttachmentPreview();
+        fileInput.value = '';
+    }
+
+    function formatFileSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    function getFileIcon(filename) {
+        const ext = (filename || '').split('.').pop().toLowerCase();
+        const icons = {
+            pdf: '\uD83D\uDCC4', doc: '\uD83D\uDCC4', docx: '\uD83D\uDCC4',
+            txt: '\uD83D\uDCDD', md: '\uD83D\uDCDD', log: '\uD83D\uDCDD',
+            py: '\uD83D\uDC0D', js: '\uD83D\uDCDC', ts: '\uD83D\uDCDC',
+            json: '\u007B\u007D', yaml: '\u2699', yml: '\u2699',
+            png: '\uD83D\uDDBC', jpg: '\uD83D\uDDBC', jpeg: '\uD83D\uDDBC',
+            gif: '\uD83D\uDDBC', svg: '\uD83D\uDDBC',
+            zip: '\uD83D\uDCE6', tar: '\uD83D\uDCE6', gz: '\uD83D\uDCE6',
+            csv: '\uD83D\uDCCA', xls: '\uD83D\uDCCA', xlsx: '\uD83D\uDCCA',
+        };
+        return icons[ext] || '\uD83D\uDCCE';
     }
 
     // --- Conversation History ---
@@ -742,6 +843,31 @@
         sidebar.classList.toggle('open');
     });
     newChatBtn.addEventListener('click', startNewChat);
+
+    // Attach file button
+    attachBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length > 0) {
+            handleFileSelect(fileInput.files);
+        }
+    });
+
+    // Drag and drop on input area
+    const inputArea = document.getElementById('input-area');
+    inputArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        inputArea.classList.add('drag-over');
+    });
+    inputArea.addEventListener('dragleave', () => {
+        inputArea.classList.remove('drag-over');
+    });
+    inputArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        inputArea.classList.remove('drag-over');
+        if (e.dataTransfer.files.length > 0) {
+            handleFileSelect(e.dataTransfer.files);
+        }
+    });
 
     // --- Health Check ---
 

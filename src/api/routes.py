@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import shutil
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
 from src.agent.loop import AgentLoop
@@ -73,6 +75,32 @@ async def update_settings(req: SettingsRequest) -> JSONResponse:
     return JSONResponse({"status": "updated"})
 
 
+UPLOAD_DIR = Path(__file__).parent.parent.parent / "data" / "uploads"
+
+
+@router.post("/upload")
+async def upload_file(file: UploadFile) -> JSONResponse:
+    """Upload a file for the agent to process."""
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Generate unique filename to avoid collisions
+    ext = Path(file.filename or "file").suffix
+    safe_name = Path(file.filename or "file").stem[:50]
+    unique_name = f"{safe_name}_{uuid.uuid4().hex[:8]}{ext}"
+    dest = UPLOAD_DIR / unique_name
+
+    with dest.open("wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    size_bytes = dest.stat().st_size
+    return JSONResponse({
+        "filename": file.filename,
+        "saved_as": unique_name,
+        "path": str(dest.resolve()),
+        "size": size_bytes,
+    })
+
+
 @router.post("/chat")
 async def chat(req: ChatRequest) -> ChatResponse:
     """Run agent loop (non-streaming, returns all steps at once)."""
@@ -135,6 +163,16 @@ async def websocket_chat(ws: WebSocket) -> None:
             msg = json.loads(data)
             user_input = msg.get("message", "")
             conv_id = msg.get("conversation_id")
+            attachments: list[dict[str, Any]] = msg.get("attachments", [])
+
+            # If files are attached, append their info to the user message
+            if attachments:
+                file_lines = ["\n\n[Attached files:]"]
+                for att in attachments:
+                    file_lines.append(
+                        f"- {att.get('filename', 'file')} → {att.get('path', '')}"
+                    )
+                user_input += "\n".join(file_lines)
 
             agent = AgentLoop(conversation_id=conv_id)
 
